@@ -7,7 +7,7 @@
 </head>
 <body class="container" data-ng-app="indexer" data-ng-controller="indexer as indexer">
 
-<div class="col-md-4 col-md-offset-4">
+<div class="col-md-6 col-md-offset-3">
 
     <form data-ng-submit="indexer.start()" data-ng-if="indexer.isReady()">
         <h1>ElasticSearch indexer</h1>
@@ -16,7 +16,16 @@
             <input type="url" data-ng-model="indexer.data.elasticsearchUrl" required placeholder="ElasticSearch URL"/>
         </div>
         <div class="form-group">
-            <input type="url" data-ng-model="indexer.data.mongodbUrl" required placeholder="MongoDB URL"/>
+            <input type="text" data-ng-model="indexer.data.type" required placeholder="Type to reindex"/>
+        </div>
+        <div class="form-group">
+            <input type="text" data-ng-model="indexer.data.oldIndex" required placeholder="Old index name"/>
+        </div>
+        <div class="form-group">
+            <input type="text" data-ng-model="indexer.data.newIndex" required placeholder="New index name"/>
+        </div>
+        <div class="form-group">
+            <input type="text" data-ng-model="indexer.data.alias" required placeholder="Alias name"/>
         </div>
         <div class="form-group">
             <textarea data-ng-model="indexer.data.mapping" required placeholder="ElasticSearch mapping"></textarea>
@@ -30,6 +39,9 @@
                 <input type="radio" data-ng-model="indexer.data.mode" name="mode" value="full"/> Reindex from Mongo
             </label>
         </div>
+        <div class="form-group" data-ng-show="indexer.data.mode==='full'">
+            <input type="url" data-ng-model="indexer.data.mongodbUrl" required placeholder="MongoDB URL"/>
+        </div>
         <div class="form-group">
             <button>Submit</button>
         </div>
@@ -41,6 +53,9 @@
 
     <div class="alert alert-info" role="alert" data-ng-if="indexer.isCheckingStatus()">Checking status</div>
     <div class="alert alert-danger" role="alert" data-ng-if="indexer.error">{{indexer.error}}</div>
+    <div class="text-center" data-ng-if="indexer.isErrorStatus()">
+        <button type="button" data-ng-click="indexer.reset()">Reset process</button>
+    </div>
 
 </div>
 <!--suppress JSUnresolvedLibraryURL -->
@@ -49,13 +64,21 @@
     angular.module('indexer', []).controller('indexer', function ($http, $window) {
         var ctrl = this;
         var STATUS_CHECKING_STATUS = 'checking-status';
+        var STATUS_ERROR = 'error';
         var STATUS_READY = 'ready';
         var STATUS_IN_PROGRESS = 'in-progress';
 
         var status = STATUS_CHECKING_STATUS;
-        var watchStatusInterval;
-
-        this.data = {};
+        this.data = {
+            elasticsearchUrl: 'http://localhost:9200',
+            type: 'trackingData',
+            oldIndex: 'fuse-tracking-data',
+            newIndex: 'fuse-tracking-data-new',
+            alias: 'fuse',
+            mode: 'full',
+            mongodbUrl: 'mongodb://localhost:27017/fuse-telemetry',
+            mapping: '{}'
+        };
 
         this.isReady = function () {
             return STATUS_READY === status;
@@ -67,6 +90,17 @@
 
         this.isCheckingStatus = function () {
             return STATUS_CHECKING_STATUS === status;
+        };
+
+        this.isErrorStatus = function () {
+            return STATUS_ERROR === status;
+        };
+
+        this.reset = function () {
+            return $http.delete('/api/reindex/error').then(function () {
+                status = STATUS_READY;
+                ctrl.error = null;
+            });
         };
 
         this.start = function () {
@@ -86,7 +120,8 @@
 
         function watchStatus() {
             checkStatus().then(function (result) {
-                status = result;
+                status = result.status;
+                ctrl.error = result.error;
                 if (ctrl.isInProgress()) {
                     $window.setTimeout(function () {
                         watchStatus();

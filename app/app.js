@@ -10,10 +10,20 @@ module.exports = function () {
 
     app.use(express.static(__dirname + '/views'));
     app.use(bodyParser.urlencoded({extended: false}));
+    app.use(bodyParser.json());
 
     app.route('/api/reindex/status').get(function (req, res) {
         reindexer.getStatus().then(function (result) {
             res.send(result);
+        }).catch(function (error) {
+            console.error(error && error.stack || error);
+            res.sendStatus(500);
+        });
+    });
+
+    app.route('/api/reindex/error').delete(function (req, res) {
+        reindexer.clearError().then(function () {
+            res.sendStatus(200);
         }).catch(function (error) {
             console.error(error && error.stack || error);
             res.sendStatus(500);
