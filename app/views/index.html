@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ElasticSearch reindexer</title>
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+</head>
+<body class="container" data-ng-app="indexer" data-ng-controller="indexer as indexer">
+
+<div class="col-md-4 col-md-offset-4">
+
+    <form data-ng-submit="indexer.start()" data-ng-if="indexer.isReady()">
+        <h1>ElasticSearch indexer</h1>
+
+        <div class="form-group">
+            <input type="url" data-ng-model="indexer.data.elasticsearchUrl" required placeholder="ElasticSearch URL"/>
+        </div>
+        <div class="form-group">
+            <input type="url" data-ng-model="indexer.data.mongodbUrl" required placeholder="MongoDB URL"/>
+        </div>
+        <div class="form-group">
+            <textarea data-ng-model="indexer.data.mapping" required placeholder="ElasticSearch mapping"></textarea>
+        </div>
+        <div class="form-group">
+            <label>
+                <input type="radio" data-ng-model="indexer.data.mode" name="mode" required value="simple"/> Reindex from ES
+            </label>
+            <br/>
+            <label>
+                <input type="radio" data-ng-model="indexer.data.mode" name="mode" value="full"/> Reindex from Mongo
+            </label>
+        </div>
+        <div class="form-group">
+            <button>Submit</button>
+        </div>
+    </form>
+
+    <div data-ng-if="indexer.isInProgress()">
+        <h1>Indexing in progress</h1>
+    </div>
+
+    <div class="alert alert-info" role="alert" data-ng-if="indexer.isCheckingStatus()">Checking status</div>
+    <div class="alert alert-danger" role="alert" data-ng-if="indexer.error">{{indexer.error}}</div>
+
+</div>
+<!--suppress JSUnresolvedLibraryURL -->
+<script src="//ajax.googleapis.com/ajax/libs/angularjs/1.4.5/angular.min.js"></script>
+<script>
+    angular.module('indexer', []).controller('indexer', function ($http, $window) {
+        var ctrl = this;
+        var STATUS_CHECKING_STATUS = 'checking-status';
+        var STATUS_READY = 'ready';
+        var STATUS_IN_PROGRESS = 'in-progress';
+
+        var status = STATUS_CHECKING_STATUS;
+        var watchStatusInterval;
+
+        this.data = {};
+
+        this.isReady = function () {
+            return STATUS_READY === status;
+        };
+
+        this.isInProgress = function () {
+            return STATUS_IN_PROGRESS === status;
+        };
+
+        this.isCheckingStatus = function () {
+            return STATUS_CHECKING_STATUS === status;
+        };
+
+        this.start = function () {
+            $http.post('/api/reindex/start', this.data).then(function () {
+                status = STATUS_IN_PROGRESS;
+                watchStatus();
+            }).catch(function (response) {
+                ctrl.error = response.data;
+            });
+        };
+
+        function checkStatus() {
+            return $http.get('/api/reindex/status').then(function (response) {
+                return response.data;
+            });
+        }
+
+        function watchStatus() {
+            checkStatus().then(function (result) {
+                status = result;
+                if (ctrl.isInProgress()) {
+                    $window.setTimeout(function () {
+                        watchStatus();
+                    }, 1000);
+                }
+            });
+        }
+
+        watchStatus();
+
+    });
+</script>
+</body>
+</html>
