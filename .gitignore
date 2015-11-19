@@ -1,0 +1,14 @@
+.idea
+*.iml
+node_modules
+atlassian-ide-plugin.xml
+npm-debug.log
+newrelic_agent.log
+.vagrant/
+dist/
+coverage/
+.iml
+.DS_Store
+report.html
+.env*
+Procfile.*
