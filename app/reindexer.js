@@ -4,8 +4,10 @@ var _ = require('lodash');
 var ElasticHarvester = require('elastic-harvesterjs');
 var Promise = require('bluebird');
 var $http = require('http-as-promised');
+//noinspection CodeAssistanceForRequiredModule
 var url = require('url');
 var mongojs = require('mongojs');
+var ElasticScroll = require('elasticscroll');
 
 var STATUS_READY = 'ready';
 var STATUS_ERROR = 'error';
@@ -98,14 +100,10 @@ function fullReindex(options) {
     }
 
     function indexNewArrivals() {
-        var skip = 0;
-        //TODO use scroll search from ES http://www.maori.geek.nz/scroll_elasticsearch_using_promises_and_node_js/
         var body = {
-            size: limit,
-            from: skip,
             fields: ['_id'],
+            sort: ['_lastUpdated'],
             query: {
-                //TODO add sort here
                 filtered: {
                     filter: {
                         range: {
@@ -116,26 +114,20 @@ function fullReindex(options) {
                     }
                 }
             }
-
         };
 
-        function loop() {
-            console.info('indexNewArrivals', '-', 'Limit:', limit, 'Skip:', skip);
-            body.from = skip;
-            skip += limit;
-            return $http.post(url.resolve(options.elasticsearchUrl, oldIndex + '/' + type + '/_search'), {json: true, body: body}).spread(function (res, body) {
-                var ids = _.pluck(body.hits.hits, '_id');
-                var q = db[mongoType].find({_id: {$in: ids}}).sort({_id: 1});
-                return fetchFromMongoAndIndex(q).then(function () {
-                    if (body.hits.hits.length >= limit) {
-                        return loop();
-                    }
-                });
+        var ids = [];
 
-            });
+        function onScroll(item) {
+            ids.push(item._id);
+            if (ids.length >= limit) {
+                var q = db[mongoType].find({_id: {$in: ids}}).sort({_id: 1});
+                ids = [];
+                return fetchFromMongoAndIndex(q);
+            }
         }
 
-        return loop();
+        return new ElasticScroll(url.resolve(options.elasticsearchUrl, oldIndex + '/' + type), body, onScroll).scroll();
     }
 
     function putMapping() {

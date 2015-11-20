@@ -10,6 +10,7 @@
     "bluebird": "3.0.5",
     "body-parser": "1.14.1",
     "elastic-harvesterjs": "2.3.6",
+    "elasticscroll": "0.0.3",
     "express": "4.13.3",
     "http-as-promised": "1.1.0",
     "lodash": "3.10.1",
