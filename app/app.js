@@ -26,20 +26,16 @@ module.exports = function () {
             res.sendStatus(200);
         }).catch(function (error) {
             console.error(error && error.stack || error);
-            res.sendStatus(500);
-        });
-    });
-    app.route('/api/reindex/start').post(function (req, res) {
-        reindexer.startReindexing(req.body).then(function () {
-            res.sendStatus(200);
-        }).catch(function (error) {
-            console.error(error && error.stack || error);
             if (error && error.status) {
                 res.status(error.status).send(error.message);
             } else {
                 res.sendStatus(500);
             }
         });
+    });
+    app.route('/api/reindex/start').post(function (req, res) {
+        res.sendStatus(200);
+        reindexer.startReindexing(req.body);
     });
     return app;
 };

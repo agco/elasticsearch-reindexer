@@ -16,11 +16,33 @@ var STATUS_IN_PROGRESS = 'in-progress';
 var status = STATUS_READY;
 var error;
 
+function doPutMapping(options) {
+    const newIndexUrl = url.resolve(options.elasticsearchUrl, options.newIndex);
+    return $http.get(newIndexUrl, {error: false}).spread(function (result) {
+        if (result.statusCode === 200) {
+            throw new Error('New index ' + options.newIndex + ' already exists! How about: curl -XDELETE ' + newIndexUrl);
+        } else if (result.statusCode !== 404) {
+            throw new Error('Cannot check if index exists:' + options.newIndex);
+        }
+    }).then(function () {
+        return $http.put(newIndexUrl, {json: true, body: options.mapping});
+    });
+}
+
+function doSwitchAlias(options) {
+    var body = {
+        actions: [
+            {remove: {index: options.oldIndex, alias: options.alias}},
+            {add: {index: options.newIndex, alias: options.alias}}
+        ]
+    };
+    return $http.post(url.resolve(options.elasticsearchUrl, '_aliases'), {json: true, body: body});
+}
+
 
 function fullReindex(options) {
     var oldIndex = options.oldIndex;
     var newIndex = options.newIndex;
-    var alias = options.alias;
     var type = options.type;
     var mongoType = type.toLowerCase();
     var app = {
@@ -131,26 +153,11 @@ function fullReindex(options) {
     }
 
     function putMapping() {
-        const newIndexUrl = url.resolve(options.elasticsearchUrl, newIndex);
-        return $http.get(newIndexUrl, {error: false}).spread(function (result) {
-            if (result.statusCode === 200) {
-                throw new Error('New index ' + newIndex + ' already exists! How about: curl -XDELETE ' + newIndexUrl);
-            } else if (result.statusCode !== 404) {
-                throw new Error('Cannot check if index exists:' + newIndex);
-            }
-        }).then(function () {
-            return $http.put(newIndexUrl, {json: true, body: options.mapping});
-        });
+        return doPutMapping(options);
     }
 
     function switchAlias() {
-        var body = {
-            actions: [
-                {remove: {index: oldIndex, alias: alias}},
-                {add: {index: newIndex, alias: alias}}
-            ]
-        };
-        return $http.post(url.resolve(options.elasticsearchUrl, '_aliases'), {json: true, body: body});
+        return doSwitchAlias(options);
     }
 
     function saveLastUpdated() {
@@ -173,15 +180,42 @@ function fullReindex(options) {
     return putMapping().then(saveLastUpdated).then(initialIndexing).then(indexNewArrivals).then(switchAlias);
 }
 
-function simpleReindex() {
-    return Promise.reject('Simple reindex not implemented yet');
+function simpleReindex(options) {
+    var oldIndex = options.oldIndex;
+    var newIndex = options.newIndex;
+    var type = options.type;
+
+    function reindex() {
+        var body = {
+            sort: ['_lastUpdated'],
+            query: {
+                'match_all': {}
+            }
+        };
+
+        function onScroll(item) {
+            return $http.post(url.resolve(options.elasticsearchUrl, newIndex + '/' + type), {json: true, body: item._source});
+        }
+
+        return new ElasticScroll(url.resolve(options.elasticsearchUrl, oldIndex + '/' + type), body, onScroll).scroll().delay(5000);
+    }
+
+    function putMapping() {
+        return doPutMapping(options);
+    }
+
+    function switchAlias() {
+        return doSwitchAlias(options);
+    }
+
+    return putMapping().then(reindex).then(switchAlias);
 }
 
 
 module.exports = {
     clearError: function () {
         if (STATUS_ERROR !== status) {
-            return Promise.reject({status: 412, message: 'Indexer is not ready'});
+            return Promise.reject({status: 412, message: 'Indexer is not in error state'});
         }
         status = STATUS_READY;
         error = null;
