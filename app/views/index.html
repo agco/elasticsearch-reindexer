@@ -18,22 +18,22 @@
         <h1>ElasticSearch indexer</h1>
 
         <div class="form-group">
-            <input type="url" data-ng-model="indexer.data.elasticsearchUrl" required placeholder="ElasticSearch URL"/>
+            <input type="url" data-ng-model="indexer.data.elasticsearchUrl" required placeholder="ElasticSearch URL" class="form-control"/>
         </div>
         <div class="form-group">
-            <input type="text" data-ng-model="indexer.data.type" required placeholder="Type to reindex"/>
+            <input type="text" data-ng-model="indexer.data.type" required placeholder="Type to reindex" class="form-control"/>
         </div>
         <div class="form-group">
-            <input type="text" data-ng-model="indexer.data.oldIndex" required placeholder="Old index name"/>
+            <input type="text" data-ng-model="indexer.data.oldIndex" required placeholder="Old index name" class="form-control"/>
         </div>
         <div class="form-group">
-            <input type="text" data-ng-model="indexer.data.newIndex" required placeholder="New index name"/>
+            <input type="text" data-ng-model="indexer.data.newIndex" required placeholder="New index name" class="form-control"/>
         </div>
         <div class="form-group">
-            <input type="text" data-ng-model="indexer.data.alias" required placeholder="Alias name"/>
+            <input type="text" data-ng-model="indexer.data.alias" required placeholder="Alias name" class="form-control"/>
         </div>
         <div class="form-group">
-            <textarea data-ng-model="indexer.data.mapping" required placeholder="ElasticSearch mapping"></textarea>
+            <textarea data-ng-model="indexer.data.mapping" required placeholder="ElasticSearch mapping" class="form-control"></textarea>
         </div>
         <div class="form-group">
             <label>
@@ -45,7 +45,7 @@
             </label>
         </div>
         <div class="form-group" data-ng-show="indexer.data.mode==='full'">
-            <input type="url" data-ng-model="indexer.data.mongodbUrl" required placeholder="MongoDB URL"/>
+            <input type="url" data-ng-model="indexer.data.mongodbUrl" required placeholder="MongoDB URL" class="form-control"/>
         </div>
         <div class="form-group">
             <button>Submit</button>
@@ -54,6 +54,10 @@
 
     <div data-ng-if="indexer.isInProgress()">
         <h1>Indexing in progress</h1>
+
+        <p data-ng-show="indexer.phase">Phase: {{indexer.phase}}</p>
+
+        <p data-ng-show="indexer.progress">Progress: {{indexer.progress}}</p>
     </div>
 
     <div class="alert alert-info" role="alert" data-ng-if="indexer.isCheckingStatus()">Checking status</div>
@@ -127,6 +131,8 @@
             checkStatus().then(function (result) {
                 status = result.status;
                 ctrl.error = result.error;
+                ctrl.phase = result.phase;
+                ctrl.progress = result.progress;
                 if (ctrl.isInProgress()) {
                     $window.setTimeout(function () {
                         watchStatus();

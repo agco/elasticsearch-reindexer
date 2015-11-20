@@ -13,7 +13,12 @@ var STATUS_READY = 'ready';
 var STATUS_ERROR = 'error';
 var STATUS_IN_PROGRESS = 'in-progress';
 
+var PHASE_INITIAL_INDEXING = 'initial-indexing';
+var PHASE_INDEXING_NEW_ARRIVALS = 'index-new-arrivals';
+
 var status = STATUS_READY;
+var phase;
+var progress;
 var error;
 
 function doPutMapping(options) {
@@ -74,6 +79,7 @@ function fullReindex(options) {
                         resolve(result.length);
                         return;
                     }
+                    progress = skip;
                     result = result.map(function (item) {
                         item.id = item._id;
                         delete item._id;
@@ -117,11 +123,15 @@ function fullReindex(options) {
     }
 
     function initialIndexing() {
+        phase = PHASE_INITIAL_INDEXING;
+        progress = 0;
         var q = db[mongoType].find().sort({_id: 1});
         return fetchFromMongoAndIndex(q, 'initialIndexing');
     }
 
     function indexNewArrivals() {
+        phase = PHASE_INDEXING_NEW_ARRIVALS;
+        progress = 0;
         var body = {
             fields: ['_id'],
             sort: ['_lastUpdated'],
@@ -143,6 +153,7 @@ function fullReindex(options) {
         function onScroll(item) {
             ids.push(item._id);
             if (ids.length >= limit) {
+                progress += ids.length;
                 var q = db[mongoType].find({_id: {$in: ids}}).sort({_id: 1});
                 ids = [];
                 return fetchFromMongoAndIndex(q);
@@ -186,6 +197,8 @@ function simpleReindex(options) {
     var type = options.type;
 
     function reindex() {
+        phase = PHASE_INITIAL_INDEXING;
+        progress = 0;
         var body = {
             sort: ['_lastUpdated'],
             query: {
@@ -194,10 +207,11 @@ function simpleReindex(options) {
         };
 
         function onScroll(item) {
+            progress++;
             return $http.post(url.resolve(options.elasticsearchUrl, newIndex + '/' + type), {json: true, body: item._source});
         }
 
-        return new ElasticScroll(url.resolve(options.elasticsearchUrl, oldIndex + '/' + type), body, onScroll).scroll().delay(5000);
+        return new ElasticScroll(url.resolve(options.elasticsearchUrl, oldIndex + '/' + type), body, onScroll).scroll();
     }
 
     function putMapping() {
@@ -222,7 +236,7 @@ module.exports = {
         return Promise.resolve();
     },
     getStatus: function () {
-        return Promise.resolve({status: status, error: error});
+        return Promise.resolve({status: status, error: error, phase: phase, progress: progress});
     },
     startReindexing: function (options) {
         if (STATUS_READY !== status && STATUS_ERROR !== status) {
