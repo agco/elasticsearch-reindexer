@@ -44,6 +44,24 @@ function doSwitchAlias(options) {
     return $http.post(url.resolve(options.elasticsearchUrl, '_aliases'), {json: true, body: body});
 }
 
+function indexBulk(result, newIndex, type, elasticsearchUrl) {
+    var bulk = [];
+    var spec = {
+        index: {
+            _index: newIndex,
+            _type: type
+        }
+
+    };
+    _.forEach(result, function (item) {
+        var specInstance = _.cloneDeep(spec);
+        specInstance.index._id = item.id;
+        bulk.push(JSON.stringify(specInstance));
+        bulk.push(JSON.stringify(item));
+    });
+    var body = bulk.join('\n') + '\n';
+    return $http.post(url.resolve(elasticsearchUrl, newIndex + '/' + type + '/_bulk'), {body: body});
+}
 
 function fullReindex(options) {
     var oldIndex = options.oldIndex;
@@ -66,7 +84,7 @@ function fullReindex(options) {
                 console.info(comment, '-', 'Limit:', limit, 'Skip:' + skip);
             }
             return new Promise(function (resolve, reject) {
-                q.skip(skip).toArray(function (err, result) {
+                q().limit(limit).skip(skip).toArray(function (err, result) {
                     if (err) {
                         if ('cursor is exhausted' === err.message) {
                             resolve();
@@ -83,26 +101,14 @@ function fullReindex(options) {
                     result = result.map(function (item) {
                         item.id = item._id;
                         delete item._id;
-                        return trackingDataSearch.expandEntity(item);
+                        return trackingDataSearch.expandEntity(item).then(function (item) {
+                            item._lastUpdated = new Date().getTime();
+                            return item;
+                        });
                     });
                     Promise.all(result)
                         .then(function (result) {
-                            var bulk = [];
-                            var spec = {
-                                index: {
-                                    _index: newIndex,
-                                    _type: type
-                                }
-
-                            };
-                            _.forEach(result, function (item) {
-                                var specInstance = _.cloneDeep(spec);
-                                specInstance.index._id = item.id;
-                                bulk.push(JSON.stringify(specInstance));
-                                bulk.push(JSON.stringify(item));
-                            });
-                            var body = bulk.join('\n') + '\n';
-                            return $http.post(url.resolve(options.elasticsearchUrl, newIndex + '/' + type + '/_bulk'), {body: body});
+                            return indexBulk(result, newIndex, type, options.elasticsearchUrl);
                         })
                         .then(function () {
                             resolve(result.length);
@@ -111,22 +117,24 @@ function fullReindex(options) {
             }).then(function (result) {
                 if (result >= limit) {
                     skip += limit;
-                    return loop(q);
+                    return loop();
                 } else {
                     return null;
                 }
             });
         }
 
-        q.limit(limit);
         return loop();
     }
 
     function initialIndexing() {
         phase = PHASE_INITIAL_INDEXING;
         progress = 0;
-        var q = db[mongoType].find().sort({_id: 1});
-        return fetchFromMongoAndIndex(q, 'initialIndexing');
+        function queryFactory() {
+            return db[mongoType].find().sort({_id: 1});
+        }
+
+        return fetchFromMongoAndIndex(queryFactory, 'initialIndexing');
     }
 
     function indexNewArrivals() {
@@ -154,9 +162,11 @@ function fullReindex(options) {
             ids.push(item._id);
             if (ids.length >= limit) {
                 progress += ids.length;
-                var q = db[mongoType].find({_id: {$in: ids}}).sort({_id: 1});
+                var idsToSend = ids.slice();
                 ids = [];
-                return fetchFromMongoAndIndex(q);
+                return fetchFromMongoAndIndex(function queryFactory() {
+                    return db[mongoType].find({_id: {$in: idsToSend}}).sort({_id: 1});
+                });
             }
         }
 
@@ -206,12 +216,23 @@ function simpleReindex(options) {
             }
         };
 
+        var items = [];
+
         function onScroll(item) {
+            items.push(item._source);
             progress++;
-            return $http.post(url.resolve(options.elasticsearchUrl, newIndex + '/' + type), {json: true, body: item._source});
+            if (items.length >= 100) {
+                var itemsToIndex = items.slice();
+                items.length = 0;
+                return indexBulk(itemsToIndex, newIndex, type, options.elasticsearchUrl);
+            }
         }
 
-        return new ElasticScroll(url.resolve(options.elasticsearchUrl, oldIndex + '/' + type), body, onScroll).scroll();
+        return new ElasticScroll(url.resolve(options.elasticsearchUrl, oldIndex + '/' + type), body, onScroll).scroll().then(function () {
+            if (items.length) {
+                return indexBulk(items, newIndex, type, options.elasticsearchUrl)
+            }
+        });
     }
 
     function putMapping() {
